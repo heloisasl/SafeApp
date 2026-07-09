@@ -1,20 +1,25 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
+import CalculadoraScreen from './src/screens/CalculadoraScreen';
+import PanicoScreen from './src/screens/PanicoScreen';
+import ContatosScreen from './src/screens/ContatosScreen';
+import ConfiguracoesScreen from './src/screens/ConfiguracoesScreen';
+
+const Stack = createNativeStackNavigator();
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <NavigationContainer>
+      <Stack.Navigator
+        initialRouteName="Calculadora"
+        screenOptions={{ headerShown: false }}
+      >
+        <Stack.Screen name="Calculadora" component={CalculadoraScreen} />
+        <Stack.Screen name="Panico" component={PanicoScreen} />
+        <Stack.Screen name="Contatos" component={ContatosScreen} />
+        <Stack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
