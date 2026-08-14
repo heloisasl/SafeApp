@@ -29,20 +29,25 @@ export default function App() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        screenOptions={{ headerShown: false }}
+        initialRouteName="Calculadora"
+      >
+        {/* Calculadora é sempre a primeira tela */}
+        <Stack.Screen name="Calculadora" component={CalculadoraScreen} />
+
         {usuario ? (
-          // Usuária logada — mostra o app
+          // Logada — acesso ao app completo
           <>
-            <Stack.Screen name="Calculadora" component={CalculadoraScreen} />
             <Stack.Screen name="Panico" component={PanicoScreen} />
             <Stack.Screen name="Contatos" component={ContatosScreen} />
             <Stack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
           </>
         ) : (
-          // Usuária não logada — mostra login/cadastro
+          // Não logada — acesso ao cadastro/login
           <>
-            <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Cadastro" component={CadastroScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
           </>
         )}
       </Stack.Navigator>

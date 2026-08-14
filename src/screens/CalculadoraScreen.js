@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '../firebase';
 
 export default function CalculadoraScreen({ navigation }) {
   const [display, setDisplay] = useState('0');
   const [expressao, setExpressao] = useState('');
   const [codigoSecreto, setCodigoSecreto] = useState('1234');
 
-  // Carrega o código secreto salvo nas configurações
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       carregarCodigo();
@@ -25,9 +25,12 @@ export default function CalculadoraScreen({ navigation }) {
   }
 
   function apertouBotao(valor) {
-    // Verifica se o código secreto foi digitado
     if (expressao + valor === codigoSecreto + '=') {
-      navigation.navigate('Panico');
+      if (auth.currentUser) {
+        navigation.navigate('Panico');
+      } else {
+        navigation.navigate('Cadastro');
+      }
       setDisplay('0');
       setExpressao('');
       return;

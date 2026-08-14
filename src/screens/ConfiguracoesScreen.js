@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect } from 'react';
 import {
   View,
@@ -10,7 +11,8 @@ import {
   ScrollView,
   Switch,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
+
 
 export default function ConfiguracoesScreen({ navigation }) {
   const [codigoAtual, setCodigoAtual] = useState('1234');
@@ -23,7 +25,12 @@ export default function ConfiguracoesScreen({ navigation }) {
 
   useEffect(() => {
     carregarConfiguracoes();
+    marcarConfiguracaoCompleta();
   }, []);
+
+async function marcarConfiguracaoCompleta() {
+    await AsyncStorage.setItem('configuracao_completa', 'true');
+  }
 
   async function carregarConfiguracoes() {
     try {
