@@ -1,15 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-
-const CODIGO_SECRETO = '123456';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function CalculadoraScreen({ navigation }) {
   const [display, setDisplay] = useState('0');
   const [expressao, setExpressao] = useState('');
+  const [codigoSecreto, setCodigoSecreto] = useState('1234');
+
+  // Carrega o código secreto salvo nas configurações
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      carregarCodigo();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  async function carregarCodigo() {
+    try {
+      const codigo = await AsyncStorage.getItem('codigo_secreto');
+      if (codigo) setCodigoSecreto(codigo);
+    } catch (erro) {
+      console.log('Erro ao carregar código:', erro);
+    }
+  }
 
   function apertouBotao(valor) {
     // Verifica se o código secreto foi digitado
-    if (expressao + valor === CODIGO_SECRETO + '=') {
+    if (expressao + valor === codigoSecreto + '=') {
       navigation.navigate('Panico');
       setDisplay('0');
       setExpressao('');
@@ -70,14 +87,12 @@ export default function CalculadoraScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Display */}
       <View style={styles.displayContainer}>
         <Text style={styles.displayTexto} numberOfLines={1} adjustsFontSizeToFit>
           {display}
         </Text>
       </View>
 
-      {/* Botões */}
       <View style={styles.botoesContainer}>
         <View style={styles.linha}>
           {renderBotao('AC', 'cinza')}
@@ -144,7 +159,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#333333',
     alignItems: 'center',
-    justifyContent: 'center', 
+    justifyContent: 'center',
   },
   botao_cinza: {
     backgroundColor: '#a5a5a5',
