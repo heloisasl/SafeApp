@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { database } from '../firebase';
 import { ref, set, onDisconnect } from 'firebase/database';
+import NetInfo from '@react-native-community/netinfo';
 
 export default function PanicoScreen({ navigation }) {
 
@@ -24,6 +25,7 @@ export default function PanicoScreen({ navigation }) {
   const [contatoPrincipal, setContatoPrincipal] = useState(null);
   const [localizacao, setLocalizacao] = useState(null);
   const [linkMapa, setLinkMapa] = useState(null);
+  const [modoOffline, setModoOffline] = useState(false);
 
   // ===== REFS =====
   const progresso = useRef(new Animated.Value(0)).current;
@@ -36,6 +38,16 @@ export default function PanicoScreen({ navigation }) {
   useEffect(() => {
     carregarContatoPrincipal();
     pedirPermissaoGPS();
+  }, []);
+
+  // Monitora conexão e sincroniza quando voltar
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(async (state) => {
+      if (state.isConnected) {
+        sincronizarOffline();
+      }
+    });
+    return unsubscribe;
   }, []);
 
   async function pedirPermissaoGPS() {
@@ -58,6 +70,42 @@ export default function PanicoScreen({ navigation }) {
       }
     } catch (erro) {
       console.log('Erro ao carregar contato:', erro);
+    }
+  }
+
+  // ===== SINCRONIZAR OFFLINE =====
+  async function sincronizarOffline() {
+    try {
+      const chaves = await AsyncStorage.getAllKeys();
+      const chavesOffline = chaves.filter(k => k.startsWith('alarme_offline_'));
+      if (chavesOffline.length === 0) return;
+
+      console.log(`Sincronizando ${chavesOffline.length} alarme(s) offline...`);
+
+      for (const chave of chavesOffline) {
+        const dados = await AsyncStorage.getItem(chave);
+        if (dados) {
+          const alarme = JSON.parse(dados);
+          const id = chave.replace('alarme_offline_', '');
+          const locRef = ref(database, `alarmes/${id}`);
+          await set(locRef, alarme);
+          await AsyncStorage.removeItem(chave);
+          console.log(`Alarme ${id} sincronizado!`);
+        }
+      }
+    } catch (erro) {
+      console.log('Erro ao sincronizar:', erro);
+    }
+  }
+
+  // ===== PEGAR CONTATOS =====
+  async function pegarContatos() {
+    try {
+      const dados = await AsyncStorage.getItem('contatos');
+      const lista = dados ? JSON.parse(dados) : [];
+      return lista.map(c => c.telefone);
+    } catch {
+      return [];
     }
   }
 
@@ -95,16 +143,9 @@ export default function PanicoScreen({ navigation }) {
   // ===== LOCALIZAÇÃO =====
   async function enviarLocalizacao() {
     try {
-      // Verifica permissão
       const { status } = await Location.getForegroundPermissionsAsync();
-      console.log('GPS permissão:', status);
-      if (status !== 'granted') {
-        console.log('Sem permissão de GPS!');
-        return null;
-      }
+      if (status !== 'granted') return null;
 
-      // Tenta pegar localização com timeout
-      console.log('Buscando localização...');
       const pos = await Promise.race([
         Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
@@ -114,63 +155,55 @@ export default function PanicoScreen({ navigation }) {
         ),
       ]);
 
-      console.log('GPS ok:', pos.coords.latitude, pos.coords.longitude);
-
       const { latitude, longitude } = pos.coords;
       setLocalizacao({ latitude, longitude });
 
-      // Busca contatos
-      const dados = await AsyncStorage.getItem('contatos');
-      const listaContatos = dados ? JSON.parse(dados) : [];
-      const numeros = listaContatos.map(c => c.telefone);
+      const conexao = await NetInfo.fetch();
+      console.log('Internet:', conexao.isConnected);
 
-      // Salva no Firebase
-      const locRef = ref(database, `alarmes/${sessaoId.current}`);
-      await set(locRef, {
+      const dadosAlarme = {
         latitude,
         longitude,
         timestamp: Date.now(),
         ativo: true,
-        contatos: numeros,
-      });
+        contatos: await pegarContatos(),
+      };
 
-      console.log('Firebase ok!');
+      if (conexao.isConnected) {
+        const locRef = ref(database, `alarmes/${sessaoId.current}`);
+        await set(locRef, dadosAlarme);
+        onDisconnect(locRef).remove();
+        setModoOffline(false);
+        console.log('Enviado para Firebase!');
+      } else {
+        await AsyncStorage.setItem(
+          `alarme_offline_${sessaoId.current}`,
+          JSON.stringify(dadosAlarme)
+        );
+        setModoOffline(true);
+        console.log('Salvo offline!');
+      }
 
-      const link = `https://safeapp-c925b.web.app?id=${sessaoId.current}`;
+      // Link direto para o Google Maps
+      const link = `https://www.google.com/maps?q=${latitude},${longitude}`;
       setLinkMapa(link);
-      onDisconnect(locRef).remove();
 
       return { link, latitude, longitude };
 
     } catch (erro) {
       console.log('Erro GPS:', erro.message);
 
-      // Fallback — tenta pegar última posição conhecida
       try {
-        console.log('Tentando última posição conhecida...');
         const ultimaPos = await Location.getLastKnownPositionAsync();
         if (ultimaPos) {
           const { latitude, longitude } = ultimaPos.coords;
-          console.log('Última posição:', latitude, longitude);
           setLocalizacao({ latitude, longitude });
-
-          const locRef = ref(database, `alarmes/${sessaoId.current}`);
-          await set(locRef, {
-            latitude,
-            longitude,
-            timestamp: Date.now(),
-            ativo: true,
-            contatos: [],
-          });
-
-          const link = `https://safeapp-c925b.web.app?id=${sessaoId.current}`;
+          const link = `https://www.google.com/maps?q=${latitude},${longitude}`;
           setLinkMapa(link);
-          onDisconnect(locRef).remove();
-
           return { link, latitude, longitude };
         }
       } catch (e) {
-        console.log('Última posição também falhou:', e.message);
+        console.log('Última posição falhou:', e.message);
       }
 
       return null;
@@ -183,13 +216,11 @@ export default function PanicoScreen({ navigation }) {
     setAcionado(true);
     Vibration.vibrate([0, 200, 100, 200]);
 
-    // Envia localização e pega o resultado
     const resultado = await enviarLocalizacao();
     const link = resultado?.link;
     const lat = resultado?.latitude;
     const lng = resultado?.longitude;
 
-    // Busca todos os contatos
     const dados = await AsyncStorage.getItem('contatos');
     const listaContatos = dados ? JSON.parse(dados) : [];
 
@@ -205,42 +236,71 @@ export default function PanicoScreen({ navigation }) {
       return;
     }
 
-    // Separa por nível
     const contatosNivel1 = listaContatos.filter(c => c.nivel === 1);
     const contatosNivel2 = listaContatos.filter(c => c.nivel === 2);
     const contatosNivel3 = listaContatos.filter(c => c.nivel === 3);
 
-    // Monta o link final
+    // Link do Google Maps com coordenadas reais
     const linkFinal = link
-      || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : 'Localização indisponível');
+      || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '');
 
-    const mensagem = encodeURIComponent(
-      `🚨 ALERTA SAFEAPP\nEu acionei o alarme de emergência. Por favor me ajude!\n\nMinha localização em tempo real:\n${linkFinal}`
-    );
+    const conexao = await NetInfo.fetch();
 
-    // Envia para nível 1
-    contatosNivel1.forEach((contato, index) => {
-      const numero = '55' + contato.telefone.replace(/\D/g, '');
-      setTimeout(() => {
-        Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`);
-      }, 1000 + (index * 2000));
-    });
+    if (conexao.isConnected) {
+      // ===== COM INTERNET — WhatsApp =====
+      const mensagem = encodeURIComponent(
+        `🚨 ALERTA DE EMERGÊNCIA — SAFEAPP 🚨\n\n` +
+        `Eu acionei o alarme de emergência e preciso de ajuda urgente!\n\n` +
+        `📍 MINHA LOCALIZAÇÃO NO GOOGLE MAPS:\n${linkFinal}\n\n` +
+        `⚠️ Por favor, me ligue ou vá até minha localização imediatamente!`
+      );
 
-    // Envia para nível 2
-    contatosNivel2.forEach((contato, index) => {
-      const numero = '55' + contato.telefone.replace(/\D/g, '');
-      setTimeout(() => {
-        Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`);
-      }, 1000 + (contatosNivel1.length * 2000) + (index * 2000));
-    });
+      contatosNivel1.forEach((contato, index) => {
+        const numero = '55' + contato.telefone.replace(/\D/g, '');
+        setTimeout(() => {
+          Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`);
+        }, 1000 + (index * 2000));
+      });
 
-    // Envia para nível 3
-    contatosNivel3.forEach((contato, index) => {
-      const numero = '55' + contato.telefone.replace(/\D/g, '');
-      setTimeout(() => {
-        Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`);
-      }, 1000 + ((contatosNivel1.length + contatosNivel2.length) * 2000) + (index * 2000));
-    });
+      contatosNivel2.forEach((contato, index) => {
+        const numero = '55' + contato.telefone.replace(/\D/g, '');
+        setTimeout(() => {
+          Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`);
+        }, 1000 + (contatosNivel1.length * 2000) + (index * 2000));
+      });
+
+      contatosNivel3.forEach((contato, index) => {
+        const numero = '55' + contato.telefone.replace(/\D/g, '');
+        setTimeout(() => {
+          Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`);
+        }, 1000 + ((contatosNivel1.length + contatosNivel2.length) * 2000) + (index * 2000));
+      });
+
+    } else {
+      // ===== SEM INTERNET — SMS nativo =====
+      const linkMaps = lat && lng
+        ? `https://www.google.com/maps?q=${lat},${lng}`
+        : null;
+
+      const mensagemSMS = encodeURIComponent(
+        `🚨 ALERTA DE EMERGÊNCIA — SAFEAPP 🚨\n\n` +
+        `Eu acionei o alarme de emergência e preciso de ajuda urgente!\n\n` +
+        `📍 MINHA LOCALIZAÇÃO:\n` +
+        (linkMaps
+          ? `Abra o link abaixo para ver onde estou:\n${linkMaps}`
+          : `Localização não disponível no momento.`) +
+        `\n\n⚠️ Por favor, me ligue ou vá até minha localização imediatamente!`
+      );
+
+      const todosContatos = [...contatosNivel1, ...contatosNivel2, ...contatosNivel3];
+
+      todosContatos.forEach((contato, index) => {
+        const numero = contato.telefone.replace(/\D/g, '');
+        setTimeout(() => {
+          Linking.openURL(`sms:+55${numero}&body=${mensagemSMS}`);
+        }, 1000 + (index * 2000));
+      });
+    }
   }
 
   // ===== ENCERRAR ALARME =====
@@ -248,6 +308,7 @@ export default function PanicoScreen({ navigation }) {
     setAcionado(false);
     setLinkMapa(null);
     setLocalizacao(null);
+    setModoOffline(false);
     progresso.setValue(0);
 
     if (locationInterval.current) {
@@ -309,18 +370,32 @@ export default function PanicoScreen({ navigation }) {
         {acionado ? (
           <View style={styles.statusAtivo}>
             <Text style={styles.statusAtivoTexto}>
-              Contatos notificados via WhatsApp ✓{'\n'}
-              Localização sendo compartilhada ✓{'\n'}
+              {modoOffline
+                ? 'Contatos notificados via SMS ✓'
+                : 'Contatos notificados via WhatsApp ✓'
+              }{'\n'}
+              {modoOffline
+                ? 'Sem internet — localização salva localmente ⚠️'
+                : 'Localização compartilhada via Google Maps ✓'
+              }{'\n'}
               Alarme ativo ✓
             </Text>
 
-            {linkMapa && (
+            {linkMapa && !modoOffline && (
               <TouchableOpacity
                 style={styles.botaoMapa}
                 onPress={() => Linking.openURL(linkMapa)}
               >
-                <Text style={styles.botaoMapaTexto}>🗺️ Ver no mapa</Text>
+                <Text style={styles.botaoMapaTexto}>🗺️ Ver no Google Maps</Text>
               </TouchableOpacity>
+            )}
+
+            {modoOffline && (
+              <View style={styles.avisoOffline}>
+                <Text style={styles.avisoOfflineTexto}>
+                  ⚠️ Sem internet — localização será enviada quando a conexão voltar
+                </Text>
+              </View>
             )}
 
             {localizacao && (
@@ -489,6 +564,18 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  avisoOffline: {
+    backgroundColor: '#2d2000',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#8B6000',
+  },
+  avisoOfflineTexto: {
+    color: '#FFB800',
+    fontSize: 13,
+    textAlign: 'center',
   },
   coordenadas: {
     fontSize: 11,

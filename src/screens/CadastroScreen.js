@@ -43,7 +43,7 @@ export default function CadastroScreen({ navigation }) {
     try {
       const resultado = await createUserWithEmailAndPassword(auth, email, senha);
       await updateProfile(resultado.user, { displayName: nome });
-      // Navegação acontece automaticamente pelo App.js
+      
     } catch (erro) {
       let mensagem = 'Erro ao criar conta.';
       if (erro.code === 'auth/email-already-in-use') mensagem = 'Este email já está em uso.';
