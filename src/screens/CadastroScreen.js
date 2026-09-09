@@ -7,13 +7,14 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth } from '../firebase';
+import { useFonts, Comfortaa_700Bold, Comfortaa_400Regular } from '@expo-google-fonts/comfortaa';
 
 export default function CadastroScreen({ navigation }) {
   const [nome, setNome] = useState('');
@@ -22,28 +23,30 @@ export default function CadastroScreen({ navigation }) {
   const [confirmarSenha, setConfirmarSenha] = useState('');
   const [carregando, setCarregando] = useState(false);
 
+  const [fontsLoaded] = useFonts({
+    Comfortaa_700Bold,
+    Comfortaa_400Regular,
+  });
+
+  if (!fontsLoaded) return null;
+
   async function cadastrar() {
     if (!nome.trim() || !email.trim() || !senha || !confirmarSenha) {
       Alert.alert('Atenção', 'Preencha todos os campos.');
       return;
     }
-
     if (senha !== confirmarSenha) {
       Alert.alert('Atenção', 'As senhas não coincidem.');
       return;
     }
-
     if (senha.length < 6) {
       Alert.alert('Atenção', 'A senha deve ter pelo menos 6 caracteres.');
       return;
     }
-
     setCarregando(true);
-
     try {
       const resultado = await createUserWithEmailAndPassword(auth, email, senha);
       await updateProfile(resultado.user, { displayName: nome });
-      
     } catch (erro) {
       let mensagem = 'Erro ao criar conta.';
       if (erro.code === 'auth/email-already-in-use') mensagem = 'Este email já está em uso.';
@@ -61,26 +64,25 @@ export default function CadastroScreen({ navigation }) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
 
           {/* Logo */}
           <View style={styles.logoContainer}>
             <Image
               source={require('../../assets/icon.png')}
               style={styles.logo}
+              resizeMode="contain"
             />
-            <Text style={styles.titulo}>SafeApp</Text>
-            <Text style={styles.slogan}>Você não está só</Text>
           </View>
 
           {/* Formulário */}
           <View style={styles.formulario}>
-            <Text style={styles.formTitulo}>Criar conta</Text>
+            <Text style={styles.titulo}>Criar conta</Text>
 
             <TextInput
               style={styles.input}
               placeholder="Seu nome"
-              placeholderTextColor="#666680"
+              placeholderTextColor="#6b7280"
               value={nome}
               onChangeText={setNome}
               autoCapitalize="words"
@@ -89,7 +91,7 @@ export default function CadastroScreen({ navigation }) {
             <TextInput
               style={styles.input}
               placeholder="Email"
-              placeholderTextColor="#666680"
+              placeholderTextColor="#6b7280"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -98,8 +100,8 @@ export default function CadastroScreen({ navigation }) {
 
             <TextInput
               style={styles.input}
-              placeholder="Senha (mín. 6 caracteres)"
-              placeholderTextColor="#666680"
+              placeholder="Senha"
+              placeholderTextColor="#6b7280"
               value={senha}
               onChangeText={setSenha}
               secureTextEntry
@@ -108,7 +110,7 @@ export default function CadastroScreen({ navigation }) {
             <TextInput
               style={styles.input}
               placeholder="Confirmar senha"
-              placeholderTextColor="#666680"
+              placeholderTextColor="#6b7280"
               value={confirmarSenha}
               onChangeText={setConfirmarSenha}
               secureTextEntry
@@ -118,18 +120,17 @@ export default function CadastroScreen({ navigation }) {
               style={[styles.botao, carregando && styles.botaoDesabilitado]}
               onPress={cadastrar}
               disabled={carregando}
+              activeOpacity={0.85}
             >
               <Text style={styles.botaoTexto}>
-                {carregando ? 'Criando conta...' : 'Criar conta'}
+                {carregando ? 'CRIANDO...' : 'CRIAR CONTA'}
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.botaoSecundario}
-              onPress={() => navigation.navigate('Login')}
-            >
-              <Text style={styles.botaoSecundarioTexto}>
-                Já tem conta? <Text style={styles.link}>Entrar</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.linkTexto}>
+                Já tem conta?{' '}
+                <Text style={styles.link}>Entrar</Text>
               </Text>
             </TouchableOpacity>
           </View>
@@ -143,77 +144,72 @@ export default function CadastroScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#1a1f3c',
   },
   scroll: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
+    paddingHorizontal: 28,
+    paddingBottom: 40,
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 40,
+    paddingTop: 60,
+    paddingBottom: 32,
   },
   logo: {
-    width: 90,
-    height: 90,
-    resizeMode: 'contain',
+    width: 250,
+    height: 250,
     marginBottom: 12,
   },
-  titulo: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
   slogan: {
-    fontSize: 14,
-    color: '#a0a0b0',
-    marginTop: 4,
-    letterSpacing: 1,
+    fontFamily: 'Comfortaa_400Regular',
+    fontSize: 12,
+    color: '#8899aa',
+    letterSpacing: 2,
   },
   formulario: {
-    gap: 12,
+    gap: 14,
   },
-  formTitulo: {
-    fontSize: 22,
-    fontWeight: '700',
+  titulo: {
+    fontFamily: 'Comfortaa_700Bold',
+    fontSize: 28,
     color: '#ffffff',
+    textAlign: 'center',
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#252540',
+    backgroundColor: '#252d4a',
     borderRadius: 12,
-    padding: 16,
+    padding: 18,
     fontSize: 15,
     color: '#ffffff',
-    borderWidth: 0.5,
-    borderColor: '#333350',
+    fontFamily: 'Comfortaa_400Regular',
   },
   botao: {
-    backgroundColor: '#B03A10',
+    backgroundColor: '#8B1A1A',
     borderRadius: 12,
-    padding: 16,
+    padding: 18,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
   botaoDesabilitado: {
     opacity: 0.6,
   },
   botaoTexto: {
+    fontFamily: 'Comfortaa_700Bold',
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    letterSpacing: 2,
   },
-  botaoSecundario: {
-    alignItems: 'center',
-    padding: 12,
-  },
-  botaoSecundarioTexto: {
-    color: '#a0a0b0',
+  linkTexto: {
+    fontFamily: 'Comfortaa_400Regular',
+    color: '#8899aa',
     fontSize: 14,
+    textAlign: 'center',
+    marginTop: 4,
   },
   link: {
-    color: '#B03A10',
-    fontWeight: '600',
+    color: '#8B1A1A',
+    fontFamily: 'Comfortaa_700Bold',
   },
 });

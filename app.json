@@ -1,15 +1,13 @@
 {
   "expo": {
-    "name": "SafeApp",
-    "slug": "safeapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/slash.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/slash_splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1a1a2e"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": false,
@@ -17,10 +15,14 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a1a2e"
+        "foregroundImage": "./assets/slash.png",
+        "backgroundColor": "#ffffff"
       },
       "package": "com.safeapp.app"
-    }
+    },
+    "plugins": [
+      "expo-status-bar",
+      "expo-font"
+    ]
   }
 }
