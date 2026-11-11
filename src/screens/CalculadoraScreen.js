@@ -7,6 +7,7 @@ export default function CalculadoraScreen({ navigation }) {
   const [display, setDisplay] = useState('0');
   const [expressao, setExpressao] = useState('');
   const [codigoSecreto, setCodigoSecreto] = useState('1234');
+  const [biometriaAtiva, setBiometriaAtiva] = useState(false);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -18,7 +19,9 @@ export default function CalculadoraScreen({ navigation }) {
   async function carregarCodigo() {
     try {
       const codigo = await AsyncStorage.getItem('codigo_secreto');
-      if (codigo) setCodigoSecreto(codigo);
+      setCodigoSecreto(codigo || '1234');
+      const bio = await AsyncStorage.getItem('biometria_ativa');
+      setBiometriaAtiva(bio === 'true');
     } catch (erro) {
       console.log('Erro ao carregar código:', erro);
     }
@@ -27,7 +30,8 @@ export default function CalculadoraScreen({ navigation }) {
   function apertouBotao(valor) {
     if (expressao + valor === codigoSecreto + '=') {
       if (auth.currentUser) {
-        navigation.navigate('Panico');
+        // Com biometria ativada, pede digital/Face ID antes de abrir o app
+        navigation.navigate(biometriaAtiva ? 'Biometria' : 'Panico');
       } else {
         navigation.navigate('Cadastro');
       }

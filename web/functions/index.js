@@ -4,9 +4,11 @@ const twilio = require('twilio');
 
 admin.initializeApp();
 
-const TWILIO_SID = 'AC90abb0a3035386e49ebde2a33f66fadc';
-const TWILIO_TOKEN = '6d767b24f6bdb63e37e82b0397971ce9';
-const TWILIO_NUMBER = '+12624060163';
+// As credenciais do Twilio NÃO ficam no código. Elas são lidas do arquivo
+// web/functions/.env (que não vai para o GitHub). Veja .env.example.
+const TWILIO_SID = process.env.TWILIO_SID;
+const TWILIO_TOKEN = process.env.TWILIO_TOKEN;
+const TWILIO_NUMBER = process.env.TWILIO_NUMBER;
 
 const client = twilio(TWILIO_SID, TWILIO_TOKEN);
 

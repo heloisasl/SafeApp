@@ -22,7 +22,11 @@
     },
     "plugins": [
       "expo-status-bar",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-local-authentication",
+        { "faceIDPermission": "O SafeApp usa o Face ID para confirmar que é você abrindo o aplicativo." }
+      ]
     ]
   }
 }

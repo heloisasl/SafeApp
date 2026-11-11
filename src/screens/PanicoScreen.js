@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   SafeAreaView,
-  Animated,
   Vibration,
   Alert,
   Linking,
   Image,
+  Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
@@ -17,20 +17,19 @@ import { database } from '../firebase';
 import { ref, set, onDisconnect } from 'firebase/database';
 import NetInfo from '@react-native-community/netinfo';
 import { useFonts, Comfortaa_700Bold, Comfortaa_400Regular } from '@expo-google-fonts/comfortaa';
+import { registrarAlarme, encerrarRegistro } from '../historico';
+import BotaoAssistente from '../components/BotaoAssistente';
 
-export default function PanicoScreen({ navigation }) {
+export default function PanicoScreen({ navigation, route }) {
 
-  const [segurando, setSegurando] = useState(false);
   const [acionado, setAcionado] = useState(false);
   const [contatoPrincipal, setContatoPrincipal] = useState(null);
   const [localizacao, setLocalizacao] = useState(null);
   const [linkMapa, setLinkMapa] = useState(null);
   const [modoOffline, setModoOffline] = useState(false);
+  const [menuPolicia, setMenuPolicia] = useState(false);
 
-  const progresso = useRef(new Animated.Value(0)).current;
-  const animacaoRef = useRef(null);
-  const timerRef = useRef(null);
-  const locationInterval = useRef(null);
+  const acionandoRef = useRef(false);
   const sessaoId = useRef(Date.now().toString());
 
   const [fontsLoaded] = useFonts({ Comfortaa_700Bold, Comfortaa_400Regular });
@@ -47,7 +46,34 @@ export default function PanicoScreen({ navigation }) {
     return unsubscribe;
   }, []);
 
+  // O robô de ajuda pode pedir para acionar o alarme (navigation.popTo('Panico', { acionar: true }))
+  useEffect(() => {
+    if (route?.params?.acionar) {
+      navigation.setParams({ acionar: false });
+      acionarAlarme();
+    }
+  }, [route?.params?.acionar]);
+
   if (!fontsLoaded) return null;
+
+  // ---------- Botão POLÍCIA ----------
+  // O celular não permite discar sozinho: o app abre o discador já com o número e a pessoa confirma.
+  function ligar(numero) {
+    setMenuPolicia(false);
+    Linking.openURL(`tel:${numero}`).catch(() =>
+      Alert.alert('Não foi possível ligar', `Disque ${numero} no seu telefone.`)
+    );
+  }
+
+  async function abrirDelegacia() {
+    setMenuPolicia(false);
+    const conexao = await NetInfo.fetch();
+    if (!conexao.isConnected) {
+      Alert.alert('Sem internet', 'Não dá para abrir o mapa agora. Ligue 180 ou 190.');
+      return;
+    }
+    Linking.openURL('https://www.google.com/maps/search/?api=1&query=Delegacia+da+Mulher+perto+de+mim');
+  }
 
   async function pedirPermissaoGPS() {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -94,38 +120,33 @@ export default function PanicoScreen({ navigation }) {
       const dados = await AsyncStorage.getItem('contatos');
       const lista = dados ? JSON.parse(dados) : [];
       return lista.map(c => c.telefone);
-    } catch { return []; }
-  }
-
-  function iniciarPressao() {
-    setSegurando(true);
-    Vibration.vibrate(50);
-    animacaoRef.current = Animated.timing(progresso, {
-      toValue: 1, duration: 2000, useNativeDriver: false,
-    });
-    animacaoRef.current.start();
-    timerRef.current = setTimeout(() => acionarAlarme(), 2000);
-  }
-
-  function cancelarPressao() {
-    setSegurando(false);
-    if (animacaoRef.current) animacaoRef.current.stop();
-    if (timerRef.current) clearTimeout(timerRef.current);
-    Animated.timing(progresso, { toValue: 0, duration: 300, useNativeDriver: false }).start();
+    } catch {
+      return [];
+    }
   }
 
   async function enviarLocalizacao() {
     try {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== 'granted') return null;
+
       const pos = await Promise.race([
         Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout GPS')), 10000)),
       ]);
+
       const { latitude, longitude } = pos.coords;
       setLocalizacao({ latitude, longitude });
+
       const conexao = await NetInfo.fetch();
-      const dadosAlarme = { latitude, longitude, timestamp: Date.now(), ativo: true, contatos: await pegarContatos() };
+      const dadosAlarme = {
+        latitude,
+        longitude,
+        timestamp: Date.now(),
+        ativo: true,
+        contatos: await pegarContatos(),
+      };
+
       if (conexao.isConnected) {
         const locRef = ref(database, `alarmes/${sessaoId.current}`);
         await set(locRef, dadosAlarme);
@@ -135,9 +156,11 @@ export default function PanicoScreen({ navigation }) {
         await AsyncStorage.setItem(`alarme_offline_${sessaoId.current}`, JSON.stringify(dadosAlarme));
         setModoOffline(true);
       }
+
       const link = `https://www.google.com/maps?q=${latitude},${longitude}`;
       setLinkMapa(link);
       return { link, latitude, longitude };
+
     } catch (erro) {
       console.log('Erro GPS:', erro.message);
       try {
@@ -149,21 +172,29 @@ export default function PanicoScreen({ navigation }) {
           setLinkMapa(link);
           return { link, latitude, longitude };
         }
-      } catch (e) { console.log('Última posição falhou:', e.message); }
+      } catch (e) {
+        console.log('Última posição falhou:', e.message);
+      }
       return null;
     }
   }
 
   async function acionarAlarme() {
-    setSegurando(false);
+    // Evita disparar duas vezes se a pessoa tocar mais de uma vez seguida
+    if (acionandoRef.current) return;
+    acionandoRef.current = true;
+
     setAcionado(true);
     Vibration.vibrate([0, 200, 100, 200]);
+
     const resultado = await enviarLocalizacao();
     const link = resultado?.link;
     const lat = resultado?.latitude;
     const lng = resultado?.longitude;
+
     const dados = await AsyncStorage.getItem('contatos');
     const listaContatos = dados ? JSON.parse(dados) : [];
+
     if (listaContatos.length === 0) {
       Alert.alert('🚨 Alarme Acionado', 'Nenhum contato cadastrado. Adicione contatos de proteção!', [
         { text: 'Adicionar contato', onPress: () => navigation.navigate('Contatos') },
@@ -171,26 +202,39 @@ export default function PanicoScreen({ navigation }) {
       ]);
       return;
     }
+
     const contatosNivel1 = listaContatos.filter(c => c.nivel === 1);
     const contatosNivel2 = listaContatos.filter(c => c.nivel === 2);
     const contatosNivel3 = listaContatos.filter(c => c.nivel === 3);
+
     const linkFinal = link || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : '');
     const conexao = await NetInfo.fetch();
+
+    // Registra no histórico de alarmes (salvo só neste aparelho)
+    await registrarAlarme({
+      id: sessaoId.current,
+      latitude: lat,
+      longitude: lng,
+      via: conexao.isConnected ? 'whatsapp' : 'sms',
+      contatos: listaContatos.map(c => ({ nome: c.nome, nivel: c.nivel })),
+    });
+
     if (conexao.isConnected) {
       const mensagem = encodeURIComponent(
         `🚨 ALERTA DE EMERGÊNCIA — SAFEAPP 🚨\n\nEu acionei o alarme de emergência e preciso de ajuda urgente!\n\n📍 MINHA LOCALIZAÇÃO NO GOOGLE MAPS:\n${linkFinal}\n\n⚠️ Por favor, me ligue ou vá até minha localização imediatamente!`
       );
+
       contatosNivel1.forEach((contato, index) => {
         const numero = '55' + contato.telefone.replace(/\D/g, '');
-        setTimeout(() => Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`), 1000 + (index * 2000));
+        setTimeout(() => Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`), 1000 + index * 2000);
       });
       contatosNivel2.forEach((contato, index) => {
         const numero = '55' + contato.telefone.replace(/\D/g, '');
-        setTimeout(() => Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`), 1000 + (contatosNivel1.length * 2000) + (index * 2000));
+        setTimeout(() => Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`), 1000 + contatosNivel1.length * 2000 + index * 2000);
       });
       contatosNivel3.forEach((contato, index) => {
         const numero = '55' + contato.telefone.replace(/\D/g, '');
-        setTimeout(() => Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`), 1000 + ((contatosNivel1.length + contatosNivel2.length) * 2000) + (index * 2000));
+        setTimeout(() => Linking.openURL(`whatsapp://send?phone=${numero}&text=${mensagem}`), 1000 + (contatosNivel1.length + contatosNivel2.length) * 2000 + index * 2000);
       });
     } else {
       const linkMaps = lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : null;
@@ -200,7 +244,7 @@ export default function PanicoScreen({ navigation }) {
       const todosContatos = [...contatosNivel1, ...contatosNivel2, ...contatosNivel3];
       todosContatos.forEach((contato, index) => {
         const numero = contato.telefone.replace(/\D/g, '');
-        setTimeout(() => Linking.openURL(`sms:+55${numero}&body=${mensagemSMS}`), 1000 + (index * 2000));
+        setTimeout(() => Linking.openURL(`sms:+55${numero}&body=${mensagemSMS}`), 1000 + index * 2000);
       });
     }
   }
@@ -210,32 +254,35 @@ export default function PanicoScreen({ navigation }) {
     setLinkMapa(null);
     setLocalizacao(null);
     setModoOffline(false);
-    progresso.setValue(0);
-    if (locationInterval.current) { clearInterval(locationInterval.current); locationInterval.current = null; }
+    acionandoRef.current = false;
+    await encerrarRegistro(sessaoId.current);
     try {
       const locRef = ref(database, `alarmes/${sessaoId.current}`);
       await set(locRef, null);
-    } catch (erro) { console.log('Erro ao encerrar:', erro); }
+    } catch (erro) {
+      console.log('Erro ao encerrar:', erro);
+    }
     sessaoId.current = Date.now().toString();
     carregarContatoPrincipal();
   }
 
-  const larguraBarra = progresso.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-
   return (
     <SafeAreaView style={styles.container}>
 
-      {/* Header */}
       <View style={styles.header}>
-        <Image source={require('../../assets/icon.png')} style={styles.headerLogo} resizeMode="contain"/>
-        <View>
-          <Text style={styles.headerTitulo}>Safe <Text style={styles.headerApp}>App</Text></Text>
-          <Text style={styles.headerSlogan}>VOCÊ NUNCA ESTARÁ SÓ</Text>
-        </View>
+        <BotaoAssistente style={{ top: 14, right: 18 }} onPress={() => navigation.navigate('Robo')} />
+        <Image
+          source={require('../../assets/escudo.png')}
+          style={styles.headerLogo}
+          resizeMode="contain"
+        />
+        <Text style={styles.headerTitulo}>
+          Safe <Text style={styles.headerApp}>App</Text>
+        </Text>
+        <Text style={styles.headerSlogan}>VOCÊ NUNCA ESTARÁ SÓ</Text>
       </View>
 
-      {/* Card contato principal */}
-      {contatoPrincipal && !acionado && (
+      {contatoPrincipal && !acionado ? (
         <View style={styles.cardContato}>
           <Text style={styles.cardLabel}>Ao acionar, avisará:</Text>
           <View style={styles.cardRow}>
@@ -244,69 +291,85 @@ export default function PanicoScreen({ navigation }) {
           </View>
           <Text style={styles.cardTel}>{contatoPrincipal.telefone}</Text>
         </View>
-      )}
+      ) : null}
 
-      {!contatoPrincipal && !acionado && (
+      {!contatoPrincipal && !acionado ? (
         <TouchableOpacity style={styles.cardAviso} onPress={() => navigation.navigate('Contatos')}>
           <Text style={styles.avisoTexto}>⚠️ Nenhum contato de nível 1 cadastrado</Text>
           <Text style={styles.avisoSub}>Toque para adicionar →</Text>
         </TouchableOpacity>
-      )}
+      ) : null}
 
-      {/* Instrução */}
       <View style={styles.instrucaoContainer}>
         {!acionado ? (
           <Text style={styles.instrucao}>
-            {segurando ? 'Segure...' : 'Apenas clique para acionar o\nbotão silencioso.'}
+            Toque em CONTATOS para avisar quem você cadastrou, ou em POLÍCIA para pedir ajuda oficial.
           </Text>
         ) : (
           <View style={styles.statusAtivo}>
             <Text style={styles.statusTexto}>
-              {modoOffline ? 'Contatos notificados via SMS ✓' : 'Contatos notificados via WhatsApp ✓'}{'\n'}
-              {modoOffline ? '⚠️ Sem internet — localização salva localmente' : 'Localização compartilhada ✓'}{'\n'}
-              Alarme ativo ✓
+              {modoOffline ? 'Contatos notificados via SMS ✓' : 'Contatos notificados via WhatsApp ✓'}
             </Text>
-            {linkMapa && !modoOffline && (
+            <Text style={styles.statusTexto}>
+              {modoOffline ? '⚠️ Sem internet — localização salva localmente' : 'Localização compartilhada ✓'}
+            </Text>
+            <Text style={styles.statusTexto}>Alarme ativo ✓</Text>
+
+            {linkMapa && !modoOffline ? (
               <TouchableOpacity style={styles.botaoMapa} onPress={() => Linking.openURL(linkMapa)}>
                 <Text style={styles.botaoMapaTexto}>🗺️ Ver no Google Maps</Text>
               </TouchableOpacity>
-            )}
-            {localizacao && (
+            ) : null}
+
+            {localizacao ? (
               <Text style={styles.coordenadas}>
                 📍 {localizacao.latitude.toFixed(6)}, {localizacao.longitude.toFixed(6)}
               </Text>
-            )}
+            ) : null}
           </View>
         )}
       </View>
 
-      {/* Barra de progresso */}
-      {!acionado && (
-        <View style={styles.progressoContainer}>
-          <Animated.View style={[styles.progressoBarra, { width: larguraBarra }]} />
-        </View>
-      )}
-
-      {/* Botão pânico */}
       <View style={styles.botaoContainer}>
         <TouchableOpacity
-          style={[styles.botaoPanico, segurando && styles.botaoPanicoSegurando, acionado && styles.botaoPanicoAtivo]}
-          onPressIn={!acionado ? iniciarPressao : null}
-          onPressOut={!acionado ? cancelarPressao : null}
+          style={[styles.botaoPanico, acionado && styles.botaoPanicoAtivo]}
+          onPress={acionarAlarme}
+          disabled={acionado}
           activeOpacity={0.85}
+          accessibilityLabel="Avisar meus contatos"
         >
-          <Image source={require('../../assets/icon.png')} style={styles.botaoIcone} resizeMode="contain"/>
-          <Text style={styles.botaoTexto}>{acionado ? 'ATIVO' : segurando ? 'SEGURE...' : 'ACIONAR'}</Text>
+          <Image
+            source={require('../../assets/escudo.png')}
+            style={styles.botaoIcone}
+            resizeMode="contain"
+          />
+          <Text style={styles.botaoTexto}>
+            {acionado ? 'ATIVO' : 'CONTATOS'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.botaoPanico, styles.botaoPolicia]}
+          onPress={() => setMenuPolicia(true)}
+          activeOpacity={0.85}
+          accessibilityLabel="Chamar a polícia ou a delegacia da mulher"
+        >
+          <Image
+            source={require('../../assets/distintivo.png')}
+            style={styles.botaoIcone}
+            resizeMode="contain"
+          />
+          <Text style={styles.botaoTexto}>POLÍCIA</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Rodapé */}
       <View style={styles.rodape}>
-        {acionado && (
+        {acionado ? (
           <TouchableOpacity style={styles.botaoEncerrar} onPress={encerrarAlarme}>
             <Text style={styles.botaoEncerrarTexto}>Encerrar alarme</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
+
         <View style={styles.navRow}>
           <TouchableOpacity style={styles.navBtn} onPress={() => navigation.navigate('Contatos')}>
             <Text style={styles.navIcone}>👥</Text>
@@ -319,6 +382,53 @@ export default function PanicoScreen({ navigation }) {
         </View>
       </View>
 
+      <Modal
+        visible={menuPolicia}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMenuPolicia(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalFundo}
+          activeOpacity={1}
+          onPress={() => setMenuPolicia(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.modalCaixa}>
+            <View style={styles.modalPuxador} />
+            <Text style={styles.modalTitulo}>Pedir ajuda oficial</Text>
+            <Text style={styles.modalSub}>O celular abre a ligação e você confirma.</Text>
+
+            <TouchableOpacity style={styles.modalOpcao} onPress={() => ligar('190')} activeOpacity={0.85}>
+              <View style={styles.modalIcone}><Text style={styles.modalEmoji}>📞</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalOpcaoTitulo}>Ligar 190</Text>
+                <Text style={styles.modalOpcaoSub}>Polícia Militar</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalOpcao} onPress={() => ligar('180')} activeOpacity={0.85}>
+              <View style={[styles.modalIcone, { backgroundColor: '#3b5bdb' }]}><Text style={styles.modalEmoji}>📞</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalOpcaoTitulo}>Ligar 180</Text>
+                <Text style={styles.modalOpcaoSub}>Central de Atendimento à Mulher, 24 horas</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalOpcao} onPress={abrirDelegacia} activeOpacity={0.85}>
+              <View style={[styles.modalIcone, { backgroundColor: '#0F6E56' }]}><Text style={styles.modalEmoji}>📍</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalOpcaoTitulo}>Delegacia da Mulher mais próxima</Text>
+                <Text style={styles.modalOpcaoSub}>Abre o Google Maps com a busca</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalCancelar} onPress={() => setMenuPolicia(false)} activeOpacity={0.85}>
+              <Text style={styles.modalCancelarTexto}>CANCELAR</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -329,30 +439,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1f3c',
   },
   header: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 12,
   },
   headerLogo: {
-    width: 44,
-    height: 44,
+    width: 72,
+    height: 72,
+    marginBottom: 6,
   },
   headerTitulo: {
     fontFamily: 'Comfortaa_700Bold',
-    fontSize: 22,
+    fontSize: 28,
     color: '#ffffff',
+    textAlign: 'center',
   },
   headerApp: {
     color: '#8B1A1A',
   },
   headerSlogan: {
     fontFamily: 'Comfortaa_400Regular',
-    fontSize: 9,
+    fontSize: 10,
     color: '#8899aa',
-    letterSpacing: 1.5,
+    letterSpacing: 2,
+    textAlign: 'center',
+    marginTop: 2,
   },
   cardContato: {
     marginHorizontal: 24,
@@ -362,6 +474,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#3a4a7a',
+    alignItems: 'center',
   },
   cardLabel: {
     fontFamily: 'Comfortaa_400Regular',
@@ -372,6 +485,7 @@ const styles = StyleSheet.create({
   cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     marginBottom: 2,
   },
@@ -426,19 +540,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#252d4a',
     borderRadius: 14,
     padding: 18,
-    gap: 10,
+    gap: 8,
   },
   statusTexto: {
     fontFamily: 'Comfortaa_400Regular',
     fontSize: 13,
     color: '#8099f0',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   botaoMapa: {
     backgroundColor: '#8B1A1A',
     borderRadius: 10,
     padding: 12,
     alignItems: 'center',
+    marginTop: 4,
   },
   botaoMapaTexto: {
     fontFamily: 'Comfortaa_700Bold',
@@ -451,27 +566,17 @@ const styles = StyleSheet.create({
     color: '#6b7faa',
     textAlign: 'center',
   },
-  progressoContainer: {
-    marginHorizontal: 60,
-    height: 3,
-    backgroundColor: '#252d4a',
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  progressoBarra: {
-    height: '100%',
-    backgroundColor: '#8B1A1A',
-    borderRadius: 2,
-  },
   botaoContainer: {
-    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    paddingHorizontal: 24,
     paddingBottom: 24,
   },
   botaoPanico: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
     backgroundColor: '#252d4a',
     borderWidth: 3,
     borderColor: '#8B1A1A',
@@ -479,17 +584,95 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  botaoPanicoSegurando: {
-    backgroundColor: '#1a1f3c',
-    borderColor: '#c0392b',
-  },
   botaoPanicoAtivo: {
     backgroundColor: '#8B1A1A',
     borderColor: '#c0392b',
   },
+  botaoPolicia: {
+    borderColor: '#3b5bdb',
+  },
   botaoIcone: {
-    width: 80,
-    height: 80,
+    width: 72,
+    height: 72,
+  },
+  modalFundo: {
+    flex: 1,
+    backgroundColor: 'rgba(5,7,20,0.65)',
+    justifyContent: 'flex-end',
+  },
+  modalCaixa: {
+    backgroundColor: '#1a1f3c',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderTopWidth: 1,
+    borderTopColor: '#2f3860',
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 34,
+    gap: 12,
+  },
+  modalPuxador: {
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#3a4468',
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  modalTitulo: {
+    fontFamily: 'Comfortaa_700Bold',
+    fontSize: 22,
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  modalSub: {
+    fontFamily: 'Comfortaa_400Regular',
+    fontSize: 12,
+    color: '#8899aa',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  modalOpcao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#252d4a',
+    borderRadius: 16,
+    padding: 14,
+  },
+  modalIcone: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#8B1A1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalEmoji: { fontSize: 20 },
+  modalOpcaoTitulo: {
+    fontFamily: 'Comfortaa_700Bold',
+    fontSize: 15,
+    color: '#ffffff',
+  },
+  modalOpcaoSub: {
+    fontFamily: 'Comfortaa_400Regular',
+    fontSize: 11,
+    color: '#8899aa',
+    marginTop: 2,
+  },
+  modalCancelar: {
+    borderWidth: 1,
+    borderColor: '#8B1A1A',
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  modalCancelarTexto: {
+    fontFamily: 'Comfortaa_700Bold',
+    color: '#e57373',
+    fontSize: 13,
+    letterSpacing: 1.5,
   },
   botaoTexto: {
     fontFamily: 'Comfortaa_700Bold',

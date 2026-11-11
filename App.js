@@ -10,6 +10,10 @@ import ContatosScreen from './src/screens/ContatosScreen';
 import ConfiguracoesScreen from './src/screens/ConfiguracoesScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import CadastroScreen from './src/screens/CadastroScreen';
+import HistoricoScreen from './src/screens/HistoricoScreen';
+import AlarmeDetalheScreen from './src/screens/AlarmeDetalheScreen';
+import RoboScreen from './src/screens/RoboScreen';
+import BiometriaScreen from './src/screens/BiometriaScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -42,6 +46,10 @@ export default function App() {
             <Stack.Screen name="Panico" component={PanicoScreen} />
             <Stack.Screen name="Contatos" component={ContatosScreen} />
             <Stack.Screen name="Configuracoes" component={ConfiguracoesScreen} />
+            <Stack.Screen name="Historico" component={HistoricoScreen} />
+            <Stack.Screen name="AlarmeDetalhe" component={AlarmeDetalheScreen} />
+            <Stack.Screen name="Robo" component={RoboScreen} />
+            <Stack.Screen name="Biometria" component={BiometriaScreen} />
           </>
         ) : (
           // Não logada — acesso ao cadastro/login

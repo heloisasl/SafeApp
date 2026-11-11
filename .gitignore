@@ -39,3 +39,14 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# segredos
+.env
+.env.*
+!.env.example
+
+# pastas de apoio que não fazem parte do projeto
+_backup_antes_das_novidades/
+.claude/
+.agents/
+skills-lock.json
